@@ -1,19 +1,11 @@
 (function () {
   'use strict';
 
-  if (typeof window.lampa_settings == 'undefined') {
-    window.lampa_settings = {};
-  }
+  // Сообщаем Lampa, что shots "уже загружен"
+  // и поэтому встроенный сервис не стартует
+  window.plugin_shots_ready = true;
 
-  // Если массива сервисов ещё нет — создаём
-  if (typeof window.lampa_settings.services == 'undefined') {
-    window.lampa_settings.services = {};
-  }
-
-  // Отключаем только shots
-  window.lampa_settings.services.shots = false;
-
-  // Оставляем TV-интерфейс
+  // Необязательно, но полезно — включаем TV-интерфейс
   Lampa.Platform.tv();
 
 })();
