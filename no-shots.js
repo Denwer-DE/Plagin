@@ -1,11 +1,12 @@
 (function () {
   'use strict';
 
-  // Сообщаем Lampa, что shots "уже загружен"
-  // и поэтому встроенный сервис не стартует
-  window.plugin_shots_ready = true;
+  if (typeof window.lampa_settings == 'undefined') {
+    window.lampa_settings = {};
+  }
 
-  // Необязательно, но полезно — включаем TV-интерфейс
+  window.lampa_settings.services = false;  // This will disable shots, sport, and tsarea plugins
+
   Lampa.Platform.tv();
 
 })();
