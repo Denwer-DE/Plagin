@@ -38,8 +38,7 @@
                 'lampa.byskaz.ru': 'lampa.byskaz.ru',
                 'ua.byskaz.ru': 'ua.byskaz.ru',
                 'lampa.mx': 'lampa.mx',
-                'yumata.github.io': 'yumata.github.io',
-                'khuyampa.best': 'https://khuyampa.best'
+                'yumata.github.io': 'https://yumata.github.io'
                 
             },
             default: '-'
