@@ -37,7 +37,10 @@
                 '-': 'Текущий',
                 'lampa.byskaz.ru': 'lampa.byskaz.ru',
                 'ua.byskaz.ru': 'ua.byskaz.ru',
-                'lampa.mx': 'lampa.mx'
+                'lampa.mx': 'lampa.mx',
+                'yumata.github.io': 'yumata.github.io',
+                'khuyampa.best': 'khuyampa.best'
+                
             },
             default: '-'
         },
