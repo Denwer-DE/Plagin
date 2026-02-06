@@ -3,51 +3,74 @@
 
     Lampa.Plugins.add('online_mod_custom', function (api) {
         
-        // 1. Настройка отображения в меню "Онлайн"
+        // 1. Добавление единого пункта "ONLINE" в главный список настроек
         Lampa.Settings.listener.follow('open', function (e) {
-            if (e.name == 'online') {
-                var container = e.body;
-                
-                // Удаляем визуально другие источники из настроек, если они отрисовались
-                container.find('.settings-param').each(function() {
-                    var title = $(this).find('.settings-param__name').text();
-                    var hide_list = ['Kodik', 'VideoCDN', 'Collaps', 'Tabus', 'Seasonvar'];
-                    if (hide_list.some(v => title.includes(v))) $(this).remove();
-                });
+            if (e.name == 'main') {
+                var component = e.component;
 
-                // Создаем подменю HD-Rezka
-                var rezka_item = e.component.add({
-                    title: 'HD-Rezka',
-                    descr: 'Настройки авторизации и зеркала',
+                // Создаем один общий пункт меню
+                var main_item = component.add({
+                    title: 'ONLINE',
+                    descr: 'Настройки авторизации Rezka и Filmix',
                     type: 'submenu',
                     search: false
                 }, function () {
-                    e.component.add({
-                        title: 'Зеркало HD-Rezka',
-                        name: 'rezka_host',
-                        type: 'input',
-                        placeholder: 'Напр: https://hdrezka.ag',
-                        default: 'https://hdrezka.ag'
+                    // --- Вложенное меню для HD-Rezka ---
+                    component.add({
+                        title: 'HD-Rezka',
+                        descr: 'Зеркало и данные входа',
+                        type: 'submenu',
+                        search: false
+                    }, function () {
+                        component.add({
+                            title: 'Зеркало HD-Rezka',
+                            name: 'rezka_host',
+                            type: 'input',
+                            placeholder: 'Напр: https://hdrezka.ag',
+                            default: 'https://hdrezka.ag'
+                        });
+                        component.add({
+                            title: 'Логин (Email)',
+                            name: 'rezka_login',
+                            type: 'input',
+                            placeholder: 'Введите почту'
+                        });
+                        component.add({
+                            title: 'Пароль',
+                            name: 'rezka_password',
+                            type: 'input',
+                            input: 'password',
+                            placeholder: 'Введите пароль'
+                        });
                     });
-                    e.component.add({
-                        title: 'Логин (Email)',
-                        name: 'rezka_login',
-                        type: 'input',
-                        placeholder: 'Введите почту'
-                    });
-                    e.component.add({
-                        title: 'Пароль',
-                        name: 'rezka_password',
-                        type: 'input',
-                        input: 'password',
-                        placeholder: 'Введите пароль'
+
+                    // --- Вложенное меню для Filmix ---
+                    component.add({
+                        title: 'Filmix',
+                        descr: 'Токен и зеркало Filmix',
+                        type: 'submenu',
+                        search: false
+                    }, function () {
+                        component.add({
+                            title: 'Filmix Token',
+                            name: 'filmix_token',
+                            type: 'input',
+                            placeholder: 'Введите API токен'
+                        });
+                        component.add({
+                            title: 'Зеркало Filmix',
+                            name: 'filmix_host',
+                            type: 'input',
+                            placeholder: 'Напр: http://filmix.ac',
+                            default: 'http://filmix.ac'
+                        });
                     });
                 });
 
-                // Добавление значка HD
-                var icon = $('<div class="settings-param__icon">HD</div>');
+                // Добавляем иконку для главного пункта "ONLINE"
+                var icon = $('<div class="settings-param__icon">MOD</div>');
                 icon.css({
-                    'background': '#ed7014', // Фирменный оранжевый Rezka
+                    'background': '#2ecc71', // Зеленый цвет для выделения
                     'color': '#fff',
                     'padding': '2px 5px',
                     'border-radius': '4px',
@@ -57,21 +80,29 @@
                     'margin-right': '10px',
                     'line-height': '1'
                 });
-                rezka_item.find('.settings-param__name').prepend(icon);
+                main_item.find('.settings-param__name').prepend(icon);
+            }
+
+            // Удаляем стандартные источники из раздела "Онлайн кинотеатры", чтобы не дублировались
+            if (e.name == 'online') {
+                setTimeout(function() {
+                    e.body.find('.settings-param').each(function() {
+                        var title = $(this).find('.settings-param__name').text();
+                        var hide_list = ['Kodik', 'VideoCDN', 'Collaps', 'Tabus', 'Seasonvar', 'Lampa'];
+                        if (hide_list.some(v => title.includes(v))) $(this).remove();
+                    });
+                }, 10);
             }
         });
 
-        // 2. Логика фильтрации выдачи источников
-        // Перехватываем создание компонента онлайн-просмотра
+        // 2. Логика фильтрации: в выдаче только Rezka и Filmix
         Lampa.Component.add('online', function (object) {
             var original_create = this.create;
-            
             this.create = function () {
-                // В этом блоке фильтруем источники перед отрисовкой в карточке фильма
-                if (object.search_results) {
+                if (object.search_results && Array.isArray(object.search_results)) {
                     object.search_results = object.search_results.filter(function(source) {
-                        var name = source.name ? source.name.toLowerCase() : '';
-                        return name.indexOf('rezka') > -1 || name.indexOf('filmix') > -1;
+                        var name = (source.name || '').toLowerCase();
+                        return name.includes('rezka') || name.includes('filmix');
                     });
                 }
                 return original_create.apply(this, arguments);
@@ -79,8 +110,5 @@
         });
     });
 
-    // 3. Совместимость с парсером (фильтрация на уровне запросов)
-    // Ограничиваем список активных балансеров только двумя
     window.online_mod_sources = ['filmix', 'rezka'];
-
 })();
