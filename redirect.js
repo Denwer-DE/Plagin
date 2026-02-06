@@ -25,9 +25,7 @@
         ) || DEFAULT_SERVER;
     }
 
-    function startMe() {
-        var server = getServer();
-
+    function redirectToServer(server) {
         if (window.location.search !== '?redirect=1') {
             if (window.location.hostname !== server) {
                 window.location.href = 'http://' + server + '?redirect=1';
@@ -35,25 +33,52 @@
         }
     }
 
-    function changeServer() {
+    function askServer(callback) {
         var current = getServer();
 
-        Lampa.Modal.prompt({
-            title: 'Смена сервера',
-            value: current,
-            placeholder: 'example.com',
-            callback: function (value) {
-                value = normalizeServer(value);
+        // VIDAA
+        if (Lampa.Keyboard && typeof Lampa.Keyboard.show === 'function') {
+            Lampa.Keyboard.show({
+                title: 'Укажите ваш сервер',
+                value: current,
+                placeholder: 'example.com',
+                callback: callback
+            });
+            return;
+        }
 
-                if (value) {
-                    Lampa.Storage.set('location_server', value);
-                } else {
-                    Lampa.Storage.set('location_server', DEFAULT_SERVER);
-                }
+        // Android / Web / Tizen / WebOS
+        if (Lampa.Modal && typeof Lampa.Modal.prompt === 'function') {
+            Lampa.Modal.prompt({
+                title: 'Укажите ваш сервер',
+                value: current,
+                placeholder: 'example.com',
+                callback: callback
+            });
+            return;
+        }
 
-                startMe();
+        // Fallback (любой браузер)
+        var value = window.prompt('Укажите ваш сервер', current);
+        callback(value);
+    }
+
+    function changeServer() {
+        askServer(function (value) {
+            value = normalizeServer(value);
+
+            if (value) {
+                Lampa.Storage.set('location_server', value);
+            } else {
+                Lampa.Storage.set('location_server', DEFAULT_SERVER);
             }
+
+            redirectToServer(getServer());
         });
+    }
+
+    function startMe() {
+        redirectToServer(getServer());
     }
 
     Lampa.SettingsApi.addComponent({
@@ -72,9 +97,7 @@
             name: 'Укажите ваш сервер',
             description: 'Текущий сервер по умолчанию: lampa.mx'
         },
-        onChange: function () {
-            changeServer();
-        }
+        onChange: changeServer
     });
 
     if (window.appready) startMe();
