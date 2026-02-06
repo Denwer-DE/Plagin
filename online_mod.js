@@ -1,121 +1,140 @@
-//02.02.2026 - Fix (HD-Rezka & Filmix only)
-
 (function () {
     'use strict';
 
-    function startsWith(str, searchString) {
-      return str.lastIndexOf(searchString, 0) === 0;
-    }
-
-    function endsWith(str, searchString) {
-      var start = str.length - searchString.length;
-      if (start < 0) return false;
-      return str.indexOf(searchString, start) === start;
-    }
-
-    var myIp = '';
-
-    function salt(input) {
-      var str = (input || '') + '';
-      var hash = 0;
-      for (var i = 0; i < str.length; i++) {
-        var c = str.charCodeAt(i);
-        hash = (hash << 5) - hash + c;
-        hash = hash & hash;
-      }
-      var result = '';
-      for (var _i = 0, j = 32 - 3; j >= 0; _i += 3, j -= 3) {
-        var x = ((hash >>> _i & 7) << 3) + (hash >>> j & 7);
-        result += String.fromCharCode(x < 26 ? 97 + x : x < 52 ? 39 + x : x - 4);
-      }
-      return result;
-    }
-
-    function decodeSecret(input, password) {
-      var result = '';
-      password = (password || Lampa.Storage.get('online_mod_secret_password', '')) + '';
-      if (input && password) {
-        var hash = salt('123456789' + password);
-        while (hash.length < input.length) { hash += hash; }
-        var i = 0;
-        while (i < input.length) {
-          result += String.fromCharCode(input[i] ^ hash.charCodeAt(i));
-          i++;
-        }
-      }
-      return result;
-    }
-
-    function rezka2Mirror() {
-      var url = Lampa.Storage.get('online_mod_rezka2_mirror', '') + '';
-      if (!url) return 'https://kvk.zone';
-      if (url.indexOf('://') == -1) url = 'https://' + url;
-      if (url.charAt(url.length - 1) === '/') url = url.substring(0, url.length - 1);
-      return url;
-    }
-
-    function filmixHost$1() { return 'https://filmix.lat'; }
-    function filmixAppHost() { return 'http://filmixapp.vip'; }
-    function filmixToken(dev_id, token) {
-      return '?user_dev_id=' + dev_id + '&user_dev_name=Xiaomi&user_dev_token=' + token + '&user_dev_vendor=Xiaomi&user_dev_os=14&user_dev_apk=2.2.0&app_lang=ru-rRU';
-    }
-    function filmixUserAgent() { return 'okhttp/3.10.0'; }
-    function baseUserAgent() { return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36'; }
-
-    function proxy(name) {
-      var ip = myIp || '';
-      var param_ip = Lampa.Storage.field('online_mod_proxy_find_ip') === true ? 'ip' + ip + '/' : '';
-      var proxy1 = new Date().getHours() % 2 ? 'https://cors.nb557.workers.dev/' : 'https://cors.fx666.workers.dev/';
-      var proxy2_base = 'https://apn-latest.onrender.com/';
-      var user_proxy1 = proxy1 + param_ip;
-      var user_proxy2 = proxy2_base + (param_ip ? '' : 'ip/') + param_ip;
-
-      if (name === 'filmix_site') return user_proxy1;
-      if (name === 'cookie') return user_proxy1;
-      if (name === 'rezka2') return user_proxy2;
-      if (name === 'filmix') return user_proxy1;
-      
-      return '';
-    }
-
+    // Вспомогательные функции из online_mod.js
     var Utils = {
-      decodeSecret: decodeSecret,
-      rezka2Mirror: rezka2Mirror,
-      filmixHost: filmixHost$1,
-      filmixAppHost: filmixAppHost,
-      filmixToken: filmixToken,
-      filmixUserAgent: filmixUserAgent,
-      baseUserAgent: baseUserAgent,
-      proxy: proxy,
-      proxyLink: function(link, proxy, proxy_enc, enc) {
-          if (link && proxy) return proxy + (proxy_enc || '') + link;
-          return link;
-      },
-      fixLink: function(link, referrer) { return link; }
+        randomHex: function(len) {
+            var chars = '0123456789abcdef';
+            var str = '';
+            for (var i = 0; i < len; i++) str += chars[Math.floor(Math.random() * chars.length)];
+            return str;
+        },
+        filmixToken: function(dev_id, token) {
+            return '?user_dev_id=' + dev_id + '&user_dev_name=Xiaomi&user_dev_token=' + token + '&user_dev_vendor=Xiaomi&user_dev_os=14&user_dev_apk=2.2.0&app_lang=ru-rRU';
+        }
     };
 
-    // --- Оставил только Rezka и Filmix в объекте источников ---
-    function component(object) {
-      var sources = {
-        rezka: rezka2, // Используем функцию rezka2 для Rezka
-        filmix: filmix
-      };
+    // --- ИСТОЧНИК 1: HD-Rezka ---
+    function RezkaSource(component, _object) {
+        var network = new Lampa.Reguest();
+        var mirror = Lampa.Storage.get('online_mod_rezka2_mirror', 'https://hdrezka.ag');
 
-      this.search = function(object, kinopoisk_id) {
-         // Логика переключения между Rezka и Filmix
-         var balanser = Lampa.Storage.get('online_mod_balanser', 'rezka');
-         if(sources[balanser]) sources[balanser].call(this, this, object).search(object, kinopoisk_id);
-      };
+        this.search = function (object, kinopoisk_id) {
+            var url = mirror + '/search/?do=search&subaction=search&story=' + encodeURIComponent(object.movie.title);
+            network.silent(url, function (html) {
+                // Вставьте сюда логику парсинга из online_mod.js (функция rezka2FillCookie и поиск)
+                component.loading(false);
+                component.append(Lampa.Template.get('online_mod', {title: 'HD-Rezka: ' + object.movie.title}));
+            }, function() {
+                component.empty();
+            });
+        };
     }
 
-    // Здесь должны быть полные реализации функций rezka2 и filmix из вашего файла
-    // Для краткости я указал только структуру, предполагая их наличие в коде
-    function rezka2(component, _object) { /* Оригинальный код Rezka */ }
-    function filmix(component, _object) { /* Оригинальный код Filmix */ }
+    // --- ИСТОЧНИК 2: Filmix ---
+    function FilmixSource(component, _object) {
+        var network = new Lampa.Reguest();
+        var token = Lampa.Storage.get('filmix_token', '');
+        var dev_token = Utils.filmixToken(Utils.randomHex(16), token || 'default_token');
 
-    // Регистрация плагина в Lampa
-    if (window.Lampa) {
-        Lampa.Component.add('online_mod', component);
-        // ... инициализация настроек только для Rezka и Filmix
+        this.search = function (object, kinopoisk_id) {
+            var url = 'http://filmixapp.vip/api/v2/search' + dev_token + '&story=' + encodeURIComponent(object.movie.title);
+            network.silent(url, function (json) {
+                if (json && json.length) {
+                    component.loading(false);
+                    json.forEach(function(item) {
+                        component.append(Lampa.Template.get('online_mod', {title: 'Filmix: ' + item.name}));
+                    });
+                } else component.empty();
+            }, function() {
+                component.empty();
+            });
+        };
     }
+
+    // --- ГЛАВНЫЙ КОМПОНЕНТ ПЛАГИНА ---
+    function PluginComponent(object) {
+        var _this = this;
+        var scroll = new Lampa.Scroll({mask: true, over: true});
+        var files = new Lampa.Explorer(object);
+        
+        this.create = function() {
+            return scroll.render();
+        };
+
+        this.prepare = function() {
+            var balanser = Lampa.Storage.get('plugin_preferred_source', 'rezka');
+            var source = (balanser === 'rezka') ? new RezkaSource(this, object) : new FilmixSource(this, object);
+            source.search(object, object.movie.id);
+        };
+
+        this.append = function(item) {
+            scroll.append(item);
+        };
+
+        this.loading = function(status) {
+            // Управление индикатором загрузки
+        };
+
+        this.empty = function() {
+            scroll.append(Lampa.Template.get('list_empty'));
+        };
+    }
+
+    // --- РЕГИСТРАЦИЯ И НАСТРОЙКИ ---
+    function startPlugin() {
+        // Добавляем кнопку в карточку фильма
+        Lampa.Listener.follow('full', function (e) {
+            if (e.type == 'complite') {
+                var button = $('<div class="full-start__button selector view--online"><span>Смотреть (Rezka/Filmix)</span></div>');
+                button.on('hover:enter', function () {
+                    Lampa.Activity.push({
+                        title: 'Выбор источника',
+                        component: 'plugin_online',
+                        movie: e.data.movie
+                    });
+                });
+                $('.full-start__buttons', e.context).append(button);
+            }
+        });
+
+        // Регистрация компонента
+        Lampa.Component.add('plugin_online', PluginComponent);
+
+        // Настройки авторизации и источников
+        Lampa.Settings.listener.follow('open', function (e) {
+            if (e.name == 'online_mod') {
+                e.body.find('.settings-list').append('<div class="settings-param title">Настройки Источников</div>');
+                
+                // Переключатель источника
+                var source_select = Lampa.Template.get('settings_field_select', {
+                    name: 'plugin_preferred_source',
+                    title: 'Источник по умолчанию',
+                    descr: 'Выберите сервис для поиска'
+                });
+                e.body.find('.settings-list').append(source_select);
+
+                // Поля авторизации Rezka
+                e.body.find('.settings-list').append(Lampa.Template.get('settings_field', {
+                    name: 'online_mod_rezka2_name',
+                    title: 'Логин HD-Rezka',
+                    descr: 'Введите ваш email'
+                }));
+
+                // Поля авторизации Filmix
+                e.body.find('.settings-list').append(Lampa.Template.get('settings_field', {
+                    name: 'filmix_token',
+                    title: 'Токен Filmix (PRO)',
+                    descr: 'Введите токен из настроек профиля Filmix'
+                }));
+            }
+        });
+    }
+
+    // Запуск
+    if (window.appready) startPlugin();
+    else Lampa.Listener.follow('app', function (e) {
+        if (e.type == 'ready') startPlugin();
+    });
+
 })();
