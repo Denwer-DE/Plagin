@@ -22,43 +22,50 @@
 
     function redirectToServer(server) {
         var currentHost = window.location.host;
-        if (currentHost !== server && server) {
-            // Используем относительный протокол //, чтобы не конфликтовать с https
-            window.location.href = window.location.protocol + '//' + server;
+        var target = normalizeServer(server);
+        if (target && currentHost !== target) {
+            window.location.href = window.location.protocol + '//' + target;
         }
     }
 
     function changeServer() {
         var current = getServer();
         
-        // Используем Lampa.Input — это самый надежный способ вызвать клавиатуру
+        // Используем расширенные параметры Lampa.Input для Android
         Lampa.Input.edit({
-            title: 'Укажите ваш сервер',
+            title: 'Введите адрес сервера',
             value: current,
-            free: true // Позволяет вводить любой текст
+            free: true,
+            nosave: true // Важно для Android: заставляет плагин просто вернуть текст, а не пытаться сохранить его в свои настройки
         }, function (new_value) {
-            if (new_value) {
+            if (new_value && new_value !== current) {
                 var cleanValue = normalizeServer(new_value);
                 Lampa.Storage.set('location_server', cleanValue);
-                redirectToServer(cleanValue);
+                
+                // Даем визуальное подтверждение и перезагружаем
+                Lampa.Noty.show('Сервер изменен на: ' + cleanValue);
+                setTimeout(function(){
+                    redirectToServer(cleanValue);
+                }, 1000);
             }
         });
     }
 
     function startMe() {
-        // Добавляем небольшую задержку, чтобы избежать циклической ошибки при старте
-        setTimeout(function() {
-            redirectToServer(getServer());
-        }, 500);
+        var saved = Lampa.Storage.get('location_server', '');
+        if (saved) {
+            redirectToServer(saved);
+        }
     }
 
-    // Регистрация в настройках
+    // Регистрация компонента
     Lampa.SettingsApi.addComponent({
         component: 'location_redirect',
         name: 'Смена сервера',
         icon: icon_server_redirect
     });
 
+    // Кнопка в настройках
     Lampa.SettingsApi.addParam({
         component: 'location_redirect',
         param: {
@@ -66,12 +73,13 @@
             type: 'button'
         },
         field: {
-            name: 'Укажите ваш сервер',
-            description: 'Текущий: ' + getServer()
+            name: 'Указать адрес вручную',
+            description: 'Текущий адрес: ' + getServer()
         },
         onChange: changeServer
     });
 
+    // Запуск проверки при загрузке
     if (window.appready) startMe();
     else {
         Lampa.Listener.follow('app', function (e) {
@@ -79,3 +87,4 @@
         });
     }
 })();
+
