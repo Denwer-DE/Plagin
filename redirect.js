@@ -3,6 +3,8 @@
 
     Lampa.Platform.tv();
 
+    var DEFAULT_SERVER = 'lampa.mx';
+
     var icon_server_redirect = `
     <svg width="80" height="80" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
       <path fill="currentColor" d="M4 6c0-1.1 3.6-2 8-2s8 .9 8 2-3.6 2-8 2-8-.9-8-2zm0 4c0 1.1 3.6 2 8 2s8-.9 8-2v2c0 1.1-3.6 2-8 2s-8-.9-8-2v-2zm0 6c0 1.1 3.6 2 8 2s8-.9 8-2v2c0 1.1-3.6 2-8 2s-8-.9-8-2v-2z"/>
@@ -17,20 +19,24 @@
             .replace(/\/+$/, '');
     }
 
+    function getServer() {
+        return normalizeServer(
+            Lampa.Storage.get('location_server', DEFAULT_SERVER)
+        ) || DEFAULT_SERVER;
+    }
+
     function startMe() {
-        var server = normalizeServer(Lampa.Storage.get('location_server', ''));
+        var server = getServer();
 
         if (window.location.search !== '?redirect=1') {
-            if (server && window.location.hostname !== server) {
+            if (window.location.hostname !== server) {
                 window.location.href = 'http://' + server + '?redirect=1';
             }
-        } else {
-            Lampa.Storage.set('location_server', '');
         }
     }
 
     function changeServer() {
-        var current = Lampa.Storage.get('location_server', '');
+        var current = getServer();
 
         Lampa.Modal.prompt({
             title: 'Смена сервера',
@@ -41,8 +47,11 @@
 
                 if (value) {
                     Lampa.Storage.set('location_server', value);
-                    startMe();
+                } else {
+                    Lampa.Storage.set('location_server', DEFAULT_SERVER);
                 }
+
+                startMe();
             }
         });
     }
@@ -61,7 +70,7 @@
         },
         field: {
             name: 'Укажите ваш сервер',
-            description: 'Ручной ввод домена или IP (VIDAA)'
+            description: 'Текущий сервер по умолчанию: lampa.mx'
         },
         onChange: function () {
             changeServer();
