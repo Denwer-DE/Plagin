@@ -13,74 +13,46 @@
 
     function normalizeServer(server) {
         if (!server) return '';
-        return server
-            .trim()
-            .replace(/^https?:\/\//, '')
-            .replace(/\/+$/, '');
+        return server.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
     }
 
     function getServer() {
-        return normalizeServer(
-            Lampa.Storage.get('location_server', DEFAULT_SERVER)
-        ) || DEFAULT_SERVER;
+        return normalizeServer(Lampa.Storage.get('location_server', DEFAULT_SERVER)) || DEFAULT_SERVER;
     }
 
     function redirectToServer(server) {
-        if (window.location.search !== '?redirect=1') {
-            if (window.location.hostname !== server) {
-                window.location.href = 'http://' + server + '?redirect=1';
-            }
+        var currentHost = window.location.host;
+        if (currentHost !== server && server) {
+            // Используем относительный протокол //, чтобы не конфликтовать с https
+            window.location.href = window.location.protocol + '//' + server;
         }
-    }
-
-    function askServer(callback) {
-        var current = getServer();
-
-        // VIDAA
-        if (Lampa.Keyboard && typeof Lampa.Keyboard.show === 'function') {
-            Lampa.Keyboard.show({
-                title: 'Укажите ваш сервер',
-                value: current,
-                placeholder: 'example.com',
-                callback: callback
-            });
-            return;
-        }
-
-        // Android / Web / Tizen / WebOS
-        if (Lampa.Modal && typeof Lampa.Modal.prompt === 'function') {
-            Lampa.Modal.prompt({
-                title: 'Укажите ваш сервер',
-                value: current,
-                placeholder: 'example.com',
-                callback: callback
-            });
-            return;
-        }
-
-        // Fallback (любой браузер)
-        var value = window.prompt('Укажите ваш сервер', current);
-        callback(value);
     }
 
     function changeServer() {
-        askServer(function (value) {
-            value = normalizeServer(value);
-
-            if (value) {
-                Lampa.Storage.set('location_server', value);
-            } else {
-                Lampa.Storage.set('location_server', DEFAULT_SERVER);
+        var current = getServer();
+        
+        // Используем Lampa.Input — это самый надежный способ вызвать клавиатуру
+        Lampa.Input.edit({
+            title: 'Укажите ваш сервер',
+            value: current,
+            free: true // Позволяет вводить любой текст
+        }, function (new_value) {
+            if (new_value) {
+                var cleanValue = normalizeServer(new_value);
+                Lampa.Storage.set('location_server', cleanValue);
+                redirectToServer(cleanValue);
             }
-
-            redirectToServer(getServer());
         });
     }
 
     function startMe() {
-        redirectToServer(getServer());
+        // Добавляем небольшую задержку, чтобы избежать циклической ошибки при старте
+        setTimeout(function() {
+            redirectToServer(getServer());
+        }, 500);
     }
 
+    // Регистрация в настройках
     Lampa.SettingsApi.addComponent({
         component: 'location_redirect',
         name: 'Смена сервера',
@@ -95,7 +67,7 @@
         },
         field: {
             name: 'Укажите ваш сервер',
-            description: 'Текущий сервер по умолчанию: lampa.mx'
+            description: 'Текущий: ' + getServer()
         },
         onChange: changeServer
     });
@@ -106,5 +78,4 @@
             if (e.type === 'ready') startMe();
         });
     }
-
 })();
