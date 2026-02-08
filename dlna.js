@@ -5,146 +5,130 @@
         var html = Lampa.Template.js('client_dlna_main');
         var head = html.find('.client-dlna-main__head');
         var body = html.find('.client-dlna-main__body');
-        var scroll, deviceFinder, listener_id, tree;
+        var scroll, tree;
         var _this = this;
 
         this.create = function () {
-            this.activity.loader(true);
-            
-            // Инициализация скролла для плавной работы на Vidaa/Android
+            this.activity.loader(false);
             scroll = new Lampa.Scroll({ mask: true, over: true });
             scroll.minus(head);
             body.append(scroll.render(true));
 
-            this.initDiscovery();
+            this.renderList();
         };
 
-        this.initDiscovery = function() {
-            // 1. Пытаемся использовать нативный API Samsung (Tizen)
-            try {
-                var provider = window.serviceProvider || (window.webapis && window.webapis.allshare && window.webapis.allshare.serviceconnector.getServiceProvider());
-                if (provider) {
-                    deviceFinder = provider.getDeviceFinder();
-                    listener_id = deviceFinder.addDeviceDiscoveryListener({
-                        ondeviceadded: function() { _this.drawDevices(); },
-                        ondeviceremoved: function() { _this.drawDevices(); }
-                    });
-                    this.drawDevices();
-                    return;
+        // Функция добавления нового IP
+        this.addManualServer = function() {
+            Lampa.Input.edit({
+                value: '',
+                title: 'Введите IP сервера и порт',
+                free: true,
+                placeholder: 'Напр: 192.168.1.50:8895'
+            }, function(new_ip) {
+                if (new_ip) {
+                    var saved = Lampa.Storage.get('custom_dlna_ips', '[]');
+                    if (saved.indexOf(new_ip) === -1) {
+                        saved.push(new_ip);
+                        Lampa.Storage.set('custom_dlna_ips', saved);
+                        _this.renderList();
+                    }
                 }
-            } catch (e) {
-                console.log('DLNA', 'Samsung API not available');
-            }
-
-            // 2. Если мы на Vidaa, LG или Android — используем CUB Bridge
-            if (window.cub && window.cub.dlna) {
-                this.drawLoading("Поиск устройств (CUB Bridge)...");
-                window.cub.dlna.list(function(devices) {
-                    _this.renderList(devices, true);
-                }, function() {
-                    _this.showError("Не удалось найти устройства через CUB.");
-                });
-            } else {
-                // Если нет ни Tizen API, ни CUB
-                this.showError("DLNA не поддерживается. Для Vidaa/LG установите расширение CUB в настройках Lampa.");
-            }
-        };
-
-        this.drawDevices = function () {
-            var devices = [];
-            try { 
-                devices = deviceFinder.getDeviceList("MEDIAPROVIDER") || []; 
-            } catch (e) {}
-            this.renderList(devices, false);
-        };
-
-        this.renderList = function(devices, isCub) {
-            this.activity.loader(false);
-            scroll.clear();
-            scroll.reset();
-
-            if (devices && devices.length) {
-                devices.forEach(function (element) {
-                    var item = Lampa.Template.js('client_dlna_device');
-                    item.find('.client-dlna-device__name').text(element.name);
-                    item.find('.client-dlna-device__ip').text(element.ipAddress || 'DLNA Device');
-
-                    item.on('hover:enter', function () {
-                        if (isCub) {
-                            _this.drawLoading("Загрузка папок...");
-                            window.cub.dlna.browse(element.id, '/', function(items) {
-                                _this.drawFolder(items, element.id);
-                            });
-                        } else {
-                            tree = { device: element, tree: [element.rootFolder] };
-                            _this.displayFolder();
-                        }
-                    });
-
-                    item.on('hover:focus', function () { scroll.update(item); });
-                    scroll.append(item);
-                });
-                this.start();
-            } else {
-                this.drawLoading("Поиск активных серверов...");
-            }
-            this.drawHead();
-        };
-
-        this.displayFolder = function () {
-            var device = tree.device;
-            var folder = tree.tree[tree.tree.length - 1];
-            this.drawLoading("Чтение папки...");
-            device.browse(folder, 0, 500, function(items) {
-                _this.drawFolder(items);
-            }, function() {
-                Lampa.Noty.show("Ошибка доступа");
-                _this.back();
             });
         };
 
-        this.drawFolder = function (elems, cubDeviceId) {
-            this.activity.loader(false);
+        // Удаление сервера из списка (через долгое нажатие или отдельную логику)
+        this.removeServer = function(ip) {
+            var saved = Lampa.Storage.get('custom_dlna_ips', '[]');
+            saved = saved.filter(function(item) { return item !== ip; });
+            Lampa.Storage.set('custom_dlna_ips', saved);
+            this.renderList();
+        };
+
+        this.renderList = function() {
             scroll.clear();
             scroll.reset();
 
-            elems.forEach(function (element) {
-                var is_folder = element.type === 'folder' || element.itemType === 'FOLDER';
-                var item = Lampa.Template.js(is_folder ? 'client_dlna_folder' : 'client_dlna_file');
-                
-                item.find('.client-dlna-device__name, .client-dlna-file__name').text(element.title);
-                
+            // Кнопка добавления (всегда первая)
+            var addBtn = Lampa.Template.js('client_dlna_device');
+            addBtn.find('.client-dlna-device__name').text('Добавить медиасервер');
+            addBtn.find('.client-dlna-device__ip').text('Нажмите для ввода IP адреса');
+            addBtn.on('hover:enter', this.addManualServer.bind(this));
+            scroll.append(addBtn);
+
+            // Рендерим сохраненные серверы
+            var saved = Lampa.Storage.get('custom_dlna_ips', '[]');
+            saved.forEach(function (ip) {
+                var item = Lampa.Template.js('client_dlna_device');
+                item.find('.client-dlna-device__name').text('DLNA Сервер');
+                item.find('.client-dlna-device__ip').text(ip);
+
                 item.on('hover:enter', function () {
-                    if (is_folder) {
-                        if (cubDeviceId) {
-                            window.cub.dlna.browse(cubDeviceId, element.id, function(next) {
-                                _this.drawFolder(next, cubDeviceId);
-                            });
-                        } else {
-                            tree.tree.push(element);
-                            _this.displayFolder();
-                        }
-                    } else {
-                        var video = {
-                            title: element.title,
-                            url: element.url || element.itemUri,
-                            quality: 'DLNA'
-                        };
-                        Lampa.Player.play(video);
-                        Lampa.Player.playlist([video]);
-                    }
+                    _this.connectToServer(ip);
                 });
+
+                // Удаление по нажатию "Меню" или длительному удержанию (опционально)
+                item.on('hover:long', function() {
+                    _this.removeServer(ip);
+                    Lampa.Noty.show("Сервер удален");
+                });
+
                 item.on('hover:focus', function () { scroll.update(item); });
                 scroll.append(item);
             });
+
             this.drawHead();
             this.start();
         };
 
-        this.showError = function(txt) {
+        this.connectToServer = function(ip) {
+            if (window.cub && window.cub.dlna) {
+                _this.drawLoading("Подключение к " + ip + "...");
+                // Пытаемся зайти сразу в корень через CUB Bridge по прямому адресу
+                window.cub.dlna.browse(ip, '/', function(items) {
+                    _this.drawFolder(items, ip);
+                }, function() {
+                    Lampa.Noty.show("Не удалось подключиться к " + ip);
+                    _this.renderList();
+                });
+            } else {
+                Lampa.Noty.show("Для работы по IP необходим установленный CUB");
+            }
+        };
+
+        this.drawFolder = function (elems, ip) {
             this.activity.loader(false);
             scroll.clear();
-            scroll.append(new Lampa.Empty({ descr: txt }).render(true));
+            scroll.reset();
+
+            if (!elems || elems.length === 0) {
+                scroll.append(new Lampa.Empty({ descr: "Папка пуста или доступ запрещен" }).render(true));
+            } else {
+                elems.forEach(function (element) {
+                    var is_folder = element.type === 'folder' || element.itemType === 'FOLDER';
+                    var item = Lampa.Template.js(is_folder ? 'client_dlna_folder' : 'client_dlna_file');
+                    
+                    item.find('.client-dlna-device__name, .client-dlna-file__name').text(element.title);
+                    
+                    item.on('hover:enter', function () {
+                        if (is_folder) {
+                            window.cub.dlna.browse(ip, element.id, function(next) {
+                                _this.drawFolder(next, ip);
+                            });
+                        } else {
+                            var video = {
+                                title: element.title,
+                                url: element.url || element.itemUri,
+                                quality: 'DLNA'
+                            };
+                            Lampa.Player.play(video);
+                            Lampa.Player.playlist([video]);
+                        }
+                    });
+                    item.on('hover:focus', function () { scroll.update(item); });
+                    scroll.append(item);
+                });
+            }
+            this.drawHead();
             this.start();
         };
 
@@ -157,17 +141,7 @@
 
         this.drawHead = function () {
             head.empty();
-            var title = tree ? tree.device.name : "DLNA Universal";
-            head.append('<div class="client-dlna-head__device"><span>' + title + '</span></div>');
-        };
-
-        this.back = function () {
-            if (tree && tree.tree.length > 1) {
-                tree.tree.pop();
-                this.displayFolder();
-            } else {
-                Lampa.Activity.backward();
-            }
+            head.append('<div class="client-dlna-head__device"><span>DLNA Manual IP</span></div>');
         };
 
         this.start = function () {
@@ -179,26 +153,24 @@
                 },
                 up: function () { Lampa.Controller.toggle('head'); },
                 left: function () { Lampa.Controller.toggle('menu'); },
-                back: this.back.bind(this)
+                back: function() { 
+                    if (tree) _this.renderList(); // Если мы в папке, вернуться к списку IP
+                    else Lampa.Activity.backward(); 
+                }
             });
             Lampa.Controller.toggle('content');
         };
 
         this.render = function () { return html; };
-        this.destroy = function () {
-            if (listener_id && deviceFinder) deviceFinder.removeDeviceDiscoveryListener(listener_id);
-            scroll.destroy();
-            html.remove();
-        };
+        this.destroy = function () { scroll.destroy(); html.remove(); };
     }
 
-    // Регистрация плагина в системе Lampa
     if (!window.plugin_client_dnla) {
         window.plugin_client_dnla = true;
         Lampa.Component.add('client_dnla', Component);
         
         var add = function() {
-            var btn = $('<li class="menu__item selector"><div class="menu__ico"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 6h20v9H2V6m18 2H4v5h16V8M9 19h6v2H9v-2z"/></svg></div><div class="menu__text">DLNA</div></li>');
+            var btn = $('<li class="menu__item selector"><div class="menu__ico"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 6h20v9H2V6m18 2H4v5h16V8M9 19h6v2H9v-2z"/></svg></div><div class="menu__text">DLNA (IP)</div></li>');
             btn.on('hover:enter', function () {
                 Lampa.Activity.push({ title: 'DLNA', component: 'client_dnla' });
             });
