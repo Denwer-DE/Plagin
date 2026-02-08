@@ -5,72 +5,124 @@
         if (window.plugin_client_dnla_ready) return;
         window.plugin_client_dnla_ready = true;
 
-        // 1. Локализация
-        Lampa.Lang.add({
-            client_dlna_name: { ru: 'DLNA Браузер', en: 'DLNA Browser' },
-            client_dlna_empty: { ru: 'Устройства не найдены', en: 'No devices found' },
-        });
+        // --- ХРАНИЛИЩЕ ДАННЫХ ---
+        function getDlnaHost() {
+            return Lampa.Storage.get('client_dlna_host', '');
+        }
 
-        // 2. Правильная структура компонента для Lampa
-        Lampa.Component.add('client_dnla', function (object) {
+        // Автоматическая подстановка протокола для предотвращения блокировок Mixed Content
+        function fixProtocol(url) {
+            if (!url) return '';
+            if (url.indexOf('://') > -1) return url;
+            return window.location.protocol + '//' + url.replace(/^\/+/, '');
+        }
+
+        // --- КОМПОНЕНТ DLNA (Логика отображения) ---
+        function DlnaComponent(object) {
             var network = new Lampa.Reguest();
             var scroll = new Lampa.Scroll({mask: true, over: true});
-            var items = [];
-            var html = $('<div></div>');
             var body = $('<div class="category-full"></div>');
-            
-            // Этот метод Lampa вызывает автоматически при старте
-            this.start = function () {
-                var _this = this;
+            var info = $('<div class="empty"></div>');
 
-                // Убираем лоадер
-                this.activity.loader(false);
-
-                // Сообщаем, что здесь пусто (так как мы отвязались от поиска Tizen)
-                var empty = $('<div class="empty">' + Lampa.Lang.translate('client_dlna_empty') + '</div>');
-                body.append(empty);
+            this.create = function () {
+                var host = getDlnaHost();
+                if (!host) {
+                    info.text('Укажите IP медиасервера в настройках DLNA');
+                    return info;
+                }
                 
-                scroll.append(body);
+                var html = $('<div></div>');
                 html.append(scroll.render());
-
-                // Даем знать Lampa, что компонент готов к отображению
-                if (this.onReady) this.onReady(html);
-            };
-
-            // Обязательный метод для отображения содержимого
-            this.render = function () {
+                scroll.append(body);
+                
+                this.refresh();
                 return html;
             };
 
-            this.pause = function () {};
-            this.stop = function () {};
-            
-            // Очистка памяти при закрытии
-            this.destroy = function () {
-                network.clear();
-                scroll.destroy();
-                if (html) html.remove();
-                items = null;
-            };
-        });
+            this.refresh = function() {
+                var _this = this;
+                body.empty();
+                Lampa.Loading.show();
 
-        // 3. Добавление кнопки в меню
+                var targetUrl = fixProtocol(getDlnaHost());
+
+                // Таймаут 8 секунд для ТВ с медленным откликом сети (как VIDAA)
+                network.timeout(8000);
+                network.native(targetUrl, function(result) {
+                    Lampa.Loading.hide();
+                    _this.build(result);
+                }, function() {
+                    Lampa.Loading.hide();
+                    body.append('<div class="empty">Не удалось подключиться к <br>'+targetUrl+'<br>Проверьте IP и работу сервера</div>');
+                });
+            };
+
+            this.build = function(data) {
+                Lampa.Noty.show('Соединение с медиасервером установлено');
+                body.append('<div class="empty">Сервер найден. Здесь будет список ваших файлов.</div>');
+            };
+
+            this.render = function () { return this.create(); };
+            this.destroy = function () { network.clear(); scroll.destroy(); };
+            this.active = function () { scroll.active(); };
+            this.pause = function () {};
+        }
+
+        // --- ИНТЕРФЕЙС И НАСТРОЙКИ ---
+        let manifest = {
+            type: 'plugin',
+            version: '1.5.0',
+            name: 'DLNA Manual',
+            component: 'client_dnla',
+        };
+
+        function setupSettings() {
+            // Создаем раздел настроек
+            Lampa.SettingsApi.addComponent({
+                component: 'dlna_manual_settings',
+                name: 'DLNA Настройки',
+                icon: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 20h16v-2H4v2zm0-3h16V7H4v10zm0-12v2h16V5H4z"/></svg>'
+            });
+
+            // Кнопка ввода IP
+            Lampa.SettingsApi.addParam({
+                component: 'dlna_manual_settings',
+                param: { 
+                    name: 'client_dlna_host', 
+                    type: 'button' 
+                },
+                field: {
+                    name: 'IP медиасервера',
+                    description: getDlnaHost() || 'Например: 192.168.1.15:8080'
+                },
+                onChange: function() {
+                    Lampa.Input.edit({
+                        title: 'Введите адрес (IP:Порт)',
+                        value: getDlnaHost(),
+                        free: true
+                    }, function(new_value) {
+                        if (new_value) {
+                            Lampa.Storage.set('client_dlna_host', new_value.trim());
+                            Lampa.Settings.update(); // Обновляет текст в описании кнопки
+                            Lampa.Noty.show('Настройки сохранены');
+                        }
+                    });
+                }
+            });
+        }
+
         function addMenuButton() {
-            var button = $(`<li class="menu__item selector">
+            let button = $(`<li class="menu__item selector">
                 <div class="menu__ico">
-                    <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-                        <path fill="currentColor" d="M256 0C114.8 0 0 114.8 0 256s114.8 256 256 256 256-114.8 256-256S397.2 0 256 0zm0 472c-119.3 0-216-96.7-216-216S136.7 40 256 40s216 96.7 216 216-96.7 216-216 216z"/>
-                        <circle cx="256" cy="256" r="80" fill="currentColor" />
-                    </svg>
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg>
                 </div>
-                <div class="menu__text">DLNA</div>
+                <div class="menu__text">${manifest.name}</div>
             </li>`);
 
             button.on('hover:enter', function () {
                 Lampa.Activity.push({
-                    url: '',
-                    title: 'DLNA',
-                    component: 'client_dnla',
+                    title: manifest.name,
+                    component: manifest.component,
                     page: 1
                 });
             });
@@ -78,13 +130,17 @@
             $('.menu .menu__list').eq(0).append(button);
         }
 
-        if (window.appready) addMenuButton();
-        else {
-            Lampa.Listener.follow('app', function (e) {
-                if (e.type == 'ready') addMenuButton();
-            });
-        }
+        // Регистрация компонента и элементов интерфейса
+        Lampa.Component.add(manifest.component, DlnaComponent);
+        addMenuButton();
+        setupSettings();
     }
 
-    if (typeof Lampa !== 'undefined') startPlugin();
+    // Инициализация
+    if (window.appready) startPlugin();
+    else {
+        Lampa.Listener.follow('app', function (e) {
+            if (e.type === 'ready') startPlugin();
+        });
+    }
 })();
