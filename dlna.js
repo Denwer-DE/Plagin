@@ -1,173 +1,92 @@
 (function () {
-  'use strict';
+    'use strict';
 
-  const STORAGE_KEY = 'dlna_ip';
+    function startPlugin() {
+        // 1. Добавляем раздел в настройки
+        Lampa.SettingsApi.add({
+            title: 'DLNA IP',
+            component: 'dlna_settings',
+            // Та самая иконка из левого меню
+            icon: '<svg height="36" viewBox="0 0 24 24" width="36" xmlns="http://www.w3.org/2000/svg"><path d="M0 0h24v24H0z" fill="none"/><path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zm-10-7h9v6h-9z" fill="white"/></svg>',
+            onRender: function (body) {
+                var items = [
+                    {
+                        title: 'Протокол',
+                        name: 'dlna_protocol',
+                        type: 'select',
+                        values: { 'http': 'HTTP', 'https': 'HTTPS' },
+                        default: 'http'
+                    },
+                    {
+                        title: 'IP адрес',
+                        name: 'dlna_server_ip',
+                        type: 'input',
+                        placeholder: '192.168.x.x'
+                    },
+                    {
+                        title: 'Порт',
+                        name: 'dlna_server_port',
+                        type: 'input',
+                        placeholder: '8895'
+                    }
+                ];
 
-  function Component(object) {
-    let html = Lampa.Template.js('client_dlna_main'),
-        head = html.find('.client-dlna-main__head'),
-        body = html.find('.client-dlna-main__body'),
-        scroll,
-        tree,
-        server_ip;
+                items.forEach(function (item) {
+                    var html = Lampa.Template.get('settings_field', item);
+                    var value = Lampa.Storage.get(item.name, item.default || '');
 
-    function fakeDevice(ip) {
-      return {
-        name: 'DLNA @ ' + ip,
-        ipAddress: ip,
-        rootFolder: { isRootFolder: true, title: 'Root' },
-        browse: function (folder, start, count, success, error) {
-          fetch('http://' + ip + ':8200/browse')
-            .then(r => r.json())
-            .then(success)
-            .catch(error);
-        }
-      };
-    }
+                    if (item.type === 'select') {
+                        html.find('.settings-param__value').text(item.values[value] || item.values[item.default]);
+                    } else {
+                        html.find('.settings-param__value').text(value || item.placeholder);
+                    }
 
-    this.create = function () {
-      server_ip = Lampa.Storage.get(STORAGE_KEY, '');
-
-      scroll = new Lampa.Scroll({ mask: true, over: true });
-      body.append(scroll.render(true));
-
-      if (!server_ip) {
-        this.drawError('DLNA IP не задан в настройках');
-        return;
-      }
-
-      tree = {
-        device: fakeDevice(server_ip),
-        tree: [fakeDevice(server_ip).rootFolder]
-      };
-
-      this.drawDevices();
-    };
-
-    this.drawError = function (text) {
-      scroll.clear();
-      let empty = new Lampa.Empty({ descr: text });
-      scroll.append(empty.render(true));
-      this.start = empty.start.bind(empty);
-    };
-
-    this.drawDevices = function () {
-      scroll.clear();
-      let item = Lampa.Template.js('client_dlna_device');
-      item.find('.client-dlna-device__name').text(tree.device.name);
-      item.find('.client-dlna-device__ip').text(tree.device.ipAddress);
-      item.on('hover:enter', () => this.displayFolder());
-      scroll.append(item);
-      this.drawHead();
-    };
-
-    this.displayFolder = function () {
-      let device = tree.device;
-      let folder = tree.tree[tree.tree.length - 1];
-
-      scroll.clear();
-      let load = Lampa.Template.js('client_dlna_loading');
-      load.find('.client-dlna-loading__title').text('Загрузка...');
-      scroll.append(load);
-
-      device.browse(folder, 0, 50, this.drawFolder.bind(this), () => {
-        this.drawError('Ошибка доступа к DLNA');
-      });
-    };
-
-    this.drawFolder = function (items) {
-      scroll.clear();
-      items.forEach(el => {
-        let tpl = el.itemType === 'VIDEO'
-          ? Lampa.Template.js('client_dlna_file')
-          : Lampa.Template.js('client_dlna_folder');
-
-        tpl.find('.client-dlna-device__name, .client-dlna-file__name')
-          .text(el.title);
-
-        tpl.on('hover:enter', () => {
-          if (el.itemType === 'VIDEO') {
-            Lampa.Player.play({ title: el.title, url: el.itemUri });
-          } else {
-            tree.tree.push(el);
-            this.displayFolder();
-          }
+                    html.on('hover:enter', function () {
+                        if (item.type === 'select') {
+                            Lampa.Select.show({
+                                title: item.title,
+                                items: Object.keys(item.values).map(function(k){ return {title: item.values[k], value: k} }),
+                                onSelect: function (sel) {
+                                    Lampa.Storage.set(item.name, sel.value);
+                                    Lampa.Settings.update();
+                                }
+                            });
+                        } else {
+                            Lampa.Input.edit({
+                                value: Lampa.Storage.get(item.name, ''),
+                                title: item.title
+                            }, function (new_value) {
+                                Lampa.Storage.set(item.name, new_value);
+                                Lampa.Settings.update();
+                            });
+                        }
+                    });
+                    body.append(html);
+                });
+            }
         });
 
-        scroll.append(tpl);
-      });
+        // 2. Логика формирования ссылки для работы с файлами
+        Lampa.Component.add('dlna_browser', function (object) {
+            this.create = function () {
+                var proto = Lampa.Storage.get('dlna_protocol', 'http');
+                var ip = Lampa.Storage.get('dlna_server_ip', '');
+                var port = Lampa.Storage.get('dlna_server_port', '');
+                
+                if (!ip) {
+                    return $('<div><div class="empty">Укажите IP в настройках DLNA</div></div>');
+                }
 
-      this.drawHead();
-    };
+                var host = proto + '://' + ip + (port ? ':' + port : '');
+                console.log('DLNA Host:', host);
 
-    this.drawHead = function () {
-      head.empty();
-      let d = document.createElement('div');
-      d.className = 'client-dlna-head__device';
-      d.innerHTML = '<svg viewBox="0 0 128 128"></svg><span>' +
-        tree.device.name + '</span>';
-      head.append(d);
-    };
+                // Здесь Лампа будет пытаться открыть ваш медиасервер
+                // Для каждого сервера (Plex, HMS и т.д.) путь к XML разный
+                return $('<div><div class="empty">Подключено к: ' + host + '</div></div>');
+            };
+        });
+    }
 
-    this.back = function () {
-      if (tree.tree.length > 1) {
-        tree.tree.pop();
-        this.displayFolder();
-      } else {
-        Lampa.Activity.backward();
-      }
-    };
-
-    this.start = function () {
-      Lampa.Controller.add('content', {
-        toggle: () => {
-          Lampa.Controller.collectionSet(html);
-          Lampa.Controller.collectionFocus(false, html);
-        },
-        back: this.back.bind(this)
-      });
-      Lampa.Controller.toggle('content');
-    };
-
-    this.render = () => html;
-    this.destroy = () => scroll && scroll.destroy();
-  }
-
-  function startPlugin() {
-    Lampa.Settings.add({
-      name: 'dlna',
-      label: 'DLNA',
-      icon: '<svg viewBox="0 0 512 512"></svg>',
-      items: [{
-        name: STORAGE_KEY,
-        type: 'input',
-        value: Lampa.Storage.get(STORAGE_KEY, ''),
-        placeholder: '192.168.1.100',
-        description: 'IP DLNA сервера',
-        onchange: v => Lampa.Storage.set(STORAGE_KEY, v.trim())
-      }]
-    });
-
-    Lampa.Component.add('client_dnla', Component);
-
-    let btn = $(`<li class="menu__item selector">
-      <div class="menu__ico"><svg viewBox="0 0 512 512"></svg></div>
-      <div class="menu__text">DLNA</div>
-    </li>`);
-
-    btn.on('hover:enter', () => {
-      Lampa.Activity.push({
-        title: 'DLNA',
-        component: 'client_dnla'
-      });
-    });
-
-    $('.menu .menu__list').eq(0).append(btn);
-  }
-
-  if (!window.plugin_client_dnla) {
-    window.plugin_client_dnla = true;
-    startPlugin();
-  }
-
+    if (window.appready) startPlugin();
+    else Lampa.Listener.follow('app', function (e) { if (e.type == 'ready') startPlugin(); });
 })();
