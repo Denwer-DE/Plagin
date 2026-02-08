@@ -1,65 +1,57 @@
 (function () {
     'use strict';
 
-    // 1. Добавление пункта в список настроек (принудительный метод)
-    Lampa.Settings.listener.follow('open', function (e) {
-        if (e.name == 'main') {
-            var dlna_item = $(`
-                <div class="settings-folder selector" data-component="dlna_ip_settings">
-                    <div class="settings-folder__icon">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 6h20v9H2V6m18 2H4v5h16V8M9 19h6v2H9v-2z"/></svg>
-                    </div>
-                    <div class="settings-folder__name">DLNA IP</div>
-                </div>
-            `);
+    // Функция отрисовки контента внутри раздела настроек
+    function DLNASettings(e) {
+        e.body.empty();
+        var ip_value = Lampa.Storage.get('dlna_server_ip', '');
+        
+        var item = Lampa.Template.js('settings_param');
+        item.find('.settings-param__name').text('IP Адрес сервера');
+        item.find('.settings-param__value').text(ip_value || 'Не указан');
+        item.find('.settings-param__descr').text('Введите IP и порт вашего DLNA сервера (напр. 192.168.1.50:8895)');
 
-            dlna_item.on('hover:enter', function () {
+        item.on('hover:enter', function () {
+            Lampa.Input.edit({
+                value: ip_value,
+                title: 'IP адрес DLNA',
+                free: true,
+                placeholder: '192.168.1.10:8895'
+            }, function (new_val) {
+                if (new_val) {
+                    if (new_val.indexOf('http') !== 0) new_val = 'http://' + new_val;
+                    Lampa.Storage.set('dlna_server_ip', new_val);
+                    item.find('.settings-param__value').text(new_val);
+                    ip_value = new_val;
+                }
+            });
+        });
+
+        e.body.append(item);
+        Lampa.Controller.focus(e.body);
+    }
+
+    // Добавление пункта в список настроек
+    Lampa.Listener.follow('settings', function (e) {
+        if (e.type == 'open' && e.name == 'main') {
+            var dlna_btn = $('<div class="settings-folder selector" data-component="dlna_ip_settings"><div class="settings-folder__icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 6h20v9H2V6m18 2H4v5h16V8M9 19h6v2H9v-2z"/></svg></div><div class="settings-folder__name">DLNA IP</div></div>');
+            
+            dlna_btn.on('hover:enter', function () {
                 Lampa.Settings.main('dlna_ip_settings');
             });
 
-            // Вставляем перед "Расширениями" или в конец списка
-            var extensions = e.body.find('[data-component="extensions"]');
-            if (extensions.length) extensions.before(dlna_item);
-            else e.body.find('.settings-list').append(dlna_item);
-            
-            Lampa.Controller.update(); 
+            // Вставляем перед расширениями
+            var target = e.body.find('[data-component="extensions"]');
+            if (target.length) target.before(dlna_btn);
+            else e.body.find('.settings-list').append(dlna_btn);
         }
 
-        // Отрисовка внутреннего содержимого раздела
-        if (e.name == 'dlna_ip_settings') {
-            e.body.empty();
-            var ip_value = Lampa.Storage.get('dlna_server_ip', '');
-            
-            var item = $(`
-                <div class="settings-param selector">
-                    <div class="settings-param__name">IP Адрес сервера</div>
-                    <div class="settings-param__value">${ip_value || 'Не указан'}</div>
-                    <div class="settings-param__descr">Введите IP и порт (например, 192.168.1.50:8895)</div>
-                </div>
-            `);
-
-            item.on('hover:enter', function () {
-                Lampa.Input.edit({
-                    value: ip_value,
-                    title: 'IP адрес DLNA',
-                    free: true,
-                    placeholder: '192.168.1.10:8895'
-                }, function (new_val) {
-                    if (new_val) {
-                        if (!/^https?:\/\//i.test(new_val)) new_val = 'http://' + new_val;
-                        Lampa.Storage.set('dlna_server_ip', new_val);
-                        item.find('.settings-param__value').text(new_val);
-                        ip_value = new_val;
-                    }
-                });
-            });
-
-            e.body.append(item);
-            Lampa.Controller.focus(e.body);
+        if (e.type == 'open' && e.name == 'dlna_ip_settings') {
+            DLNASettings(e);
         }
     });
 
-    // 2. Основной компонент DLNA
+    // Компонент самого плагина DLNA
     function Component(object) {
         var html = Lampa.Template.js('client_dlna_main');
         var head = html.find('.client-dlna-main__head');
@@ -80,14 +72,14 @@
             if (!ip) return this.showError("Укажите IP в Настройки -> DLNA IP");
 
             if (window.cub && window.cub.dlna) {
-                this.drawLoading("Подключение...");
+                this.drawLoading("Загрузка...");
                 window.cub.dlna.browse(ip, '/', function (items) {
                     _this.drawFolder(items, ip);
                 }, function () {
-                    _this.showError("Ошибка подключения к " + ip);
+                    _this.showError("Сервер " + ip + " не отвечает.");
                 });
             } else {
-                this.showError("Необходим плагин CUB.");
+                this.showError("Установите плагин CUB.");
             }
         };
 
@@ -103,7 +95,7 @@
                     item.find('.client-dlna-device__name, .client-dlna-file__name').text(element.title);
                     item.on('hover:enter', function () {
                         if (is_folder) {
-                            _this.drawLoading("Загрузка...");
+                            _this.drawLoading("Ждите...");
                             window.cub.dlna.browse(ip, element.id, function (next) { _this.drawFolder(next, ip); });
                         } else {
                             var video = { title: element.title, url: element.url || element.itemUri, quality: 'DLNA' };
@@ -151,7 +143,7 @@
         this.destroy = function () { scroll.destroy(); html.remove(); };
     }
 
-    // 3. Регистрация в меню
+    // Регистрация плагина
     if (!window.plugin_client_dnla) {
         window.plugin_client_dnla = true;
         Lampa.Component.add('client_dnla', Component);
