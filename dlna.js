@@ -29,36 +29,36 @@
 
             this.append(item);
         };
-        this.render = function () { return ''; }; // Нам не нужен шаблон, мы пушим элементы напрямую
+        this.render = function () { return '<div></div>'; };
         this.destroy = function () {};
     });
 
-    // 2. Внедряем пункт в список категорий Настроек (как TorrServer и другие)
-    Lampa.Listener.follow('settings', function (e) {
-        if (e.type == 'open' && e.name == 'main') {
-            // Создаем визуальный элемент пункта настроек
+    // 2. ПРИНУДИТЕЛЬНОЕ ВНЕДРЕНИЕ (Циклическая проверка)
+    // Этот таймер проверяет наличие меню настроек каждые 100мс
+    setInterval(function(){
+        var settingsList = $('.settings-list');
+        // Если нашли список настроек и там еще нет нашего пункта
+        if (settingsList.length && !settingsList.find('[data-component="dlna_ip_component"]').length) {
             var field = $('<div class="settings-folder selector" data-component="dlna_ip_component">' +
                 '<div class="settings-folder__icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 6h20v9H2V6m18 2H4v5h16V8M9 19h6v2H9v-2z"/></svg></div>' +
                 '<div class="settings-folder__name">DLNA IP</div>' +
             '</div>');
 
             field.on('hover:enter', function () {
-                // Вызываем отрисовку нашего компонента настроек
                 Lampa.Settings.main('dlna_ip_component');
             });
 
-            // Вставляем пункт в список
-            var list = e.body.find('.settings-list');
-            // Ищем куда вставить (перед расширениями)
-            var ext = list.find('[data-component="extensions"]');
-            if(ext.length) ext.before(field);
-            else list.append(field);
+            // Вставляем в самое начало списка, чтобы точно увидеть
+            settingsList.prepend(field);
             
-            Lampa.Controller.update();
+            // Сообщаем контроллеру, что появились новые элементы для выбора
+            if(Lampa.Controller.enabled().name == 'settings') {
+                Lampa.Controller.update();
+            }
         }
-    });
+    }, 100);
 
-    // 3. Основной экран DLNA (компонент)
+    // 3. Основной экран DLNA
     function Component(object) {
         var html = Lampa.Template.js('client_dlna_main');
         var scroll;
@@ -92,6 +92,7 @@
 
         this.drawFolder = function (elems, ip) {
             scroll.clear(); scroll.reset();
+            if(!elems) return;
             elems.forEach(function (element) {
                 var is_folder = element.type === 'folder' || element.itemType === 'FOLDER';
                 var item = Lampa.Template.js(is_folder ? 'client_dlna_folder' : 'client_dlna_file');
