@@ -1,196 +1,120 @@
 (function () {
   'use strict';
 
-  const DLNA_IP_KEY = 'dlna_manual_ip';
-  const CORS = 'https://cors.isomorphic-git.org/';
-
-  function getDLNAIP() {
-    return Lampa.Storage.get(DLNA_IP_KEY, '');
-  }
-
-  function setDLNAIP(v) {
-    Lampa.Storage.set(DLNA_IP_KEY, v);
-  }
-
-  function buildURL(ip) {
-    if (!ip) return '';
-    if (!ip.startsWith('http')) ip = 'http://' + ip;
-    return ip;
-  }
-
-  function browseDLNA(base, objectId, success, error) {
-    const body =
-`<?xml version="1.0" encoding="utf-8"?>
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
- s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-<s:Body>
-<u:Browse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
-<ObjectID>${objectId}</ObjectID>
-<BrowseFlag>BrowseDirectChildren</BrowseFlag>
-<Filter>*</Filter>
-<StartingIndex>0</StartingIndex>
-<RequestedCount>100</RequestedCount>
-<SortCriteria></SortCriteria>
-</u:Browse>
-</s:Body>
-</s:Envelope>`;
-
-    fetch(CORS + base + '/ctl/ContentDir', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/xml; charset="utf-8"',
-        'SOAPAction': '"urn:schemas-upnp-org:service:ContentDirectory:1#Browse"'
-      },
-      body
-    })
-      .then(r => r.text())
-      .then(success)
-      .catch(error);
-  }
-
-  function VirtualDevice(ip) {
-    const base = buildURL(ip);
-
-    this.name = 'DLNA (' + ip + ')';
-    this.ipAddress = ip;
-    this.rootFolder = { isRootFolder: true, id: '0', title: 'Root' };
-
-    this.browse = function (folder, index, max, ok, fail) {
-      browseDLNA(base, folder.id || '0', function (xml) {
-        // минимальный парсер
-        const items = [];
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(xml, 'text/xml');
-
-        doc.querySelectorAll('container').forEach(c => {
-          items.push({
-            itemType: 'FOLDER',
-            title: c.querySelector('title')?.textContent || 'Folder',
-            id: c.getAttribute('id'),
-            isRootFolder: false
-          });
-        });
-
-        doc.querySelectorAll('item').forEach(i => {
-          items.push({
-            itemType: 'VIDEO',
-            title: i.querySelector('title')?.textContent || 'Video',
-            itemUri: i.querySelector('res')?.textContent || '',
-            fileSize: parseInt(i.querySelector('res')?.getAttribute('size') || 0)
-          });
-        });
-
-        ok(items);
-      }, fail);
-    };
-  }
+  const STORAGE_KEY = 'dlna_ip';
 
   function Component(object) {
-    var html = Lampa.Template.js('client_dlna_main'),
-      head = html.find('.client-dlna-main__head'),
-      body = html.find('.client-dlna-main__body');
+    let html = Lampa.Template.js('client_dlna_main'),
+        head = html.find('.client-dlna-main__head'),
+        body = html.find('.client-dlna-main__body'),
+        scroll,
+        tree,
+        server_ip;
 
-    var scroll, tree;
+    function fakeDevice(ip) {
+      return {
+        name: 'DLNA @ ' + ip,
+        ipAddress: ip,
+        rootFolder: { isRootFolder: true, title: 'Root' },
+        browse: function (folder, start, count, success, error) {
+          fetch('http://' + ip + ':8200/browse')
+            .then(r => r.json())
+            .then(success)
+            .catch(error);
+        }
+      };
+    }
 
     this.create = function () {
-      this.activity.loader(true);
+      server_ip = Lampa.Storage.get(STORAGE_KEY, '');
 
       scroll = new Lampa.Scroll({ mask: true, over: true });
-      scroll.minus(head);
       body.append(scroll.render(true));
 
+      if (!server_ip) {
+        this.drawError('DLNA IP не задан в настройках');
+        return;
+      }
+
+      tree = {
+        device: fakeDevice(server_ip),
+        tree: [fakeDevice(server_ip).rootFolder]
+      };
+
       this.drawDevices();
-      this.activity.loader(false);
+    };
+
+    this.drawError = function (text) {
+      scroll.clear();
+      let empty = new Lampa.Empty({ descr: text });
+      scroll.append(empty.render(true));
+      this.start = empty.start.bind(empty);
     };
 
     this.drawDevices = function () {
       scroll.clear();
-      scroll.reset();
-
-      const ip = getDLNAIP();
-      if (!ip) {
-        this.drawLoading('Укажите DLNA IP в настройках');
-        return;
-      }
-
-      const device = new VirtualDevice(ip);
-      const item = Lampa.Template.js('client_dlna_device');
-      item.find('.client-dlna-device__name').text(device.name);
-      item.find('.client-dlna-device__ip').text(device.ipAddress);
-
-      item.on('hover:enter', () => {
-        tree = { device, tree: [device.rootFolder] };
-        this.displayFolder();
-      });
-
-      item.on('hover:focus', () => scroll.update(item));
+      let item = Lampa.Template.js('client_dlna_device');
+      item.find('.client-dlna-device__name').text(tree.device.name);
+      item.find('.client-dlna-device__ip').text(tree.device.ipAddress);
+      item.on('hover:enter', () => this.displayFolder());
       scroll.append(item);
-
       this.drawHead();
-      this.activity.toggle();
-    };
-
-    this.drawLoading = function (text) {
-      scroll.clear();
-      var load = Lampa.Template.js('client_dlna_loading');
-      load.find('.client-dlna-loading__title').text(text);
-      scroll.append(load);
     };
 
     this.displayFolder = function () {
-      const device = tree.device;
-      const folder = tree.tree[tree.tree.length - 1];
+      let device = tree.device;
+      let folder = tree.tree[tree.tree.length - 1];
 
-      this.drawLoading(Lampa.Lang.translate('loading'));
+      scroll.clear();
+      let load = Lampa.Template.js('client_dlna_loading');
+      load.find('.client-dlna-loading__title').text('Загрузка...');
+      scroll.append(load);
 
-      device.browse(folder, 0, 100,
-        this.drawFolder.bind(this),
-        () => Lampa.Noty.show('Ошибка DLNA')
-      );
+      device.browse(folder, 0, 50, this.drawFolder.bind(this), () => {
+        this.drawError('Ошибка доступа к DLNA');
+      });
     };
 
     this.drawFolder = function (items) {
       scroll.clear();
-      scroll.reset();
-
       items.forEach(el => {
-        if (el.itemType === 'FOLDER') {
-          var item = Lampa.Template.js('client_dlna_folder');
-          item.find('.client-dlna-device__name').text(el.title);
-          item.on('hover:enter', () => {
+        let tpl = el.itemType === 'VIDEO'
+          ? Lampa.Template.js('client_dlna_file')
+          : Lampa.Template.js('client_dlna_folder');
+
+        tpl.find('.client-dlna-device__name, .client-dlna-file__name')
+          .text(el.title);
+
+        tpl.on('hover:enter', () => {
+          if (el.itemType === 'VIDEO') {
+            Lampa.Player.play({ title: el.title, url: el.itemUri });
+          } else {
             tree.tree.push(el);
             this.displayFolder();
-          });
-          scroll.append(item);
-        } else {
-          var item = Lampa.Template.js('client_dlna_file');
-          item.find('.client-dlna-file__name').text(el.title);
-          item.on('hover:enter', () => {
-            Lampa.Player.play({ title: el.title, url: el.itemUri });
-          });
-          scroll.append(item);
-        }
+          }
+        });
+
+        scroll.append(tpl);
       });
 
       this.drawHead();
-      this.activity.toggle();
     };
 
     this.drawHead = function () {
       head.empty();
-      var el = document.createElement('div');
-      el.className = 'client-dlna-head__device';
-      el.innerHTML = '<span>DLNA</span>';
-      head.append(el);
+      let d = document.createElement('div');
+      d.className = 'client-dlna-head__device';
+      d.innerHTML = '<svg viewBox="0 0 128 128"></svg><span>' +
+        tree.device.name + '</span>';
+      head.append(d);
     };
 
     this.back = function () {
-      if (tree && tree.tree.length > 1) {
+      if (tree.tree.length > 1) {
         tree.tree.pop();
         this.displayFolder();
       } else {
-        tree = null;
-        this.drawDevices();
+        Lampa.Activity.backward();
       }
     };
 
@@ -206,16 +130,44 @@
     };
 
     this.render = () => html;
-    this.destroy = () => html.remove();
+    this.destroy = () => scroll && scroll.destroy();
   }
 
-  // ⚙️ НАСТРОЙКА С ИКОНКОЙ DLNA
-  Lampa.SettingsApi.addParam({
-    component: 'client_dnla',
-    param: {
-      name: 'DLNA IP',
-      type: 'input',
-      placeholder: '192.168.1.10:8200'
-    },
-    field: {
-      name: '
+  function startPlugin() {
+    Lampa.Settings.add({
+      name: 'dlna',
+      label: 'DLNA',
+      icon: '<svg viewBox="0 0 512 512"></svg>',
+      items: [{
+        name: STORAGE_KEY,
+        type: 'input',
+        value: Lampa.Storage.get(STORAGE_KEY, ''),
+        placeholder: '192.168.1.100',
+        description: 'IP DLNA сервера',
+        onchange: v => Lampa.Storage.set(STORAGE_KEY, v.trim())
+      }]
+    });
+
+    Lampa.Component.add('client_dnla', Component);
+
+    let btn = $(`<li class="menu__item selector">
+      <div class="menu__ico"><svg viewBox="0 0 512 512"></svg></div>
+      <div class="menu__text">DLNA</div>
+    </li>`);
+
+    btn.on('hover:enter', () => {
+      Lampa.Activity.push({
+        title: 'DLNA',
+        component: 'client_dnla'
+      });
+    });
+
+    $('.menu .menu__list').eq(0).append(btn);
+  }
+
+  if (!window.plugin_client_dnla) {
+    window.plugin_client_dnla = true;
+    startPlugin();
+  }
+
+})();
