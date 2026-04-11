@@ -1,19 +1,36 @@
 (function () {
-    function initLampaHook() {
-        if (window.Lampa && Lampa.Player && Lampa.Player.play) {
-            var originalPlay = Lampa.Player.play;
-            Lampa.Player.play = function (object) {
-                object.iptv = true;
+    'use strict';
 
-                if (object.vast_url) delete object.vast_url;
-                if (object.vast_msg) delete object.vast_msg;
-                
-                return originalPlay.apply(this, arguments);
-            };
-        } else {
-            setTimeout(initLampaHook, 500);
-        }
+    Lampa.Platform.tv();
+
+    function initAdBlock() {
+        // CSS-скрытие на случай задержки удаления
+        var style = document.createElement('style');
+        style.innerHTML = '.ad-server { display: none !important; }';
+        document.body.appendChild(style);
+
+        // Удаление при смене активности — только на странице full
+        Lampa.Controller.listener.follow('activity', function (e) {
+            if (e.name == 'select') {
+                setTimeout(function () {
+                    if (Lampa.Activity.active().type == 'full') {
+                        if (document.querySelector('.ad-server') !== null) {
+                            $('.ad-server').remove();
+                        }
+                    }
+                }, 20);
+            }
+        });
     }
 
-    initLampaHook();
+    if (window.lampa_ready) {
+        initAdBlock();
+    } else {
+        Lampa.Listener.follow('app', function (e) {
+            if (e.type === 'ready') {
+                initAdBlock();
+            }
+        });
+    }
+
 })();
